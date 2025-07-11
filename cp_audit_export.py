@@ -15,7 +15,7 @@ cursor = db.cursor()
 print("Connection Successful")
 
 #Execute a query
-query = "select aud.*, user_id, revtstmp, concat(cu.first_name ,' ',cu.last_name) as 'Principal Investigator' from cat_collection_protocol_aud aud join os_revisions os on os.rev=aud.rev join catissue_user cu on aud.principal_investigator_id = cu.identifier;"
+query = "select aud.*, os.user_id, concat(mod_user.first_name,' ',mod_user.last_name) as 'User', revtstmp, concat(cu.first_name ,' ',cu.last_name) as 'Principal Investigator' from cat_collection_protocol_aud aud join os_revisions os on os.rev=aud.rev join catissue_user cu on aud.principal_investigator_id = cu.identifier join catissue_user mod_user on os.user_id = mod_user.identifier;"
 
 cursor.execute(query)
 
@@ -63,7 +63,6 @@ def create_detailed_changes_df(df, group_col='IDENTIFIER'):
             print(f"Identifier '{identifier}': Only 1 record - no comparison possible")
             continue
         
-        print(f"\nAnalyzing identifier '{identifier}': {len(group_df)} records")
         
         # Create shifted dataframe (previous row values) within the same group
         shifted_df = group_df.shift(1)
@@ -84,13 +83,15 @@ def create_detailed_changes_df(df, group_col='IDENTIFIER'):
                     new_val = group_df.iloc[idx][col]
                     
                     detailed_changes.append({
-                        'identifier': identifier,
-                        'sequence_in_group': idx + 1,  # 1-based sequence within group
+                        'CP_ID': identifier,
+                        'CPE_ID': None,
+                        'SR_ID' : None,
+                        # 'sequence_in_group': idx + 1,  # 1-based sequence within group
+                        'REV': group_df.iloc[idx]['REV'],  # Add REV for timestamp mapping
                         'column_name': col,
                         'old_value': old_val,
                         'new_value': new_val,
-                        'REV': group_df.iloc[idx]['REV'],  # Add REV for timestamp mapping
-                        'user_id': group_df.iloc[idx]['user_id']  # Add user_id directly
+                        'user': group_df.iloc[idx]['User'],
                     })
     
     return pd.DataFrame(detailed_changes)
@@ -117,12 +118,14 @@ def create_new_cp_records(df, newcp_indx_list, group_col='IDENTIFIER'):
             # Only add if the value is not null/empty
             if pd.notna(record[col]) and record[col] != '':
                 new_cp_records.append({
-                    'identifier': identifier,
+                    'CP_ID': identifier,
+                    'CPE_ID': None,
+                    'SR_ID' : None,
+                    'REV': record['REV'],  # Add REV for new records
                     'column_name': col,
                     'old_value': None,  # No old value for new records
                     'new_value': record[col],
-                    'REV': record['REV'],  # Add REV for new records
-                    'user_id': record['user_id'],
+                    'user': record['User'],
                     'revtstmp': record['revtstmp']
                 })
     
@@ -156,7 +159,6 @@ if detailed_changes_df is not None and not detailed_changes_df.empty:
     df_filtered = df_filtered[~df_filtered['column_name'].str.contains('rev',case=False)]
     print(df_filtered)
 
-    print(f"\nAll changes({len(detailed_changes_df)} changes):")
 
     # Modified: Only drop 'sequence_in_group', keep 'REV' in the final output
     columns_to_drop = ['sequence_in_group']
@@ -176,6 +178,8 @@ if detailed_changes_df is not None and not detailed_changes_df.empty:
 
         print(f"\nCombined DataFrame with {len(df_filtered)} changes and {len(new_cp_df)} new CP records:")
         print(combined_df)
+
+        combined_df = combined_df.sort_values('revtstmp')
         
         # Save combined results to CSV
         combined_df.to_csv('latest_changes_user_time.csv', index=False)
