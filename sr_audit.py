@@ -106,13 +106,13 @@ if __name__ == '__main__':
         print(f"Initial results shape: {res.shape}")
         
         # Filter out unwanted columns
-        # res = res[~res['column_name'].str.contains('mod', case=False)]
+        res = res[~res['column_name'].str.contains('mod', case=False)]
         res = res[~res['column_name'].str.contains('rev', case=False)]
         res = res[~res['column_name'].str.contains('time', case=False)]
         res = res[~res['column_name'].str.contains('user', case=False)]
         res = res[~res['column_name'].str.contains('identifier', case=False)]
 
-        res[['old_value','new_value']] = res[['old_value','new_value']].replace({0: False, 1: True})
+        
         print(f"Filtered results shape: {res.shape}")
         
         if not res.empty:

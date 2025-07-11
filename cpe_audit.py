@@ -82,10 +82,9 @@ if __name__ == '__main__':
     connect(1)
     df = pd.read_csv('cpe_audit.csv')
     res = create_audit(df)
-    # res = res[~res['column_name'].str.contains('mod',case=False)]
+    res = res[~res['column_name'].str.contains('mod',case=False)]
     res = res[~res['column_name'].str.contains('rev',case=False)]
     res = res[~res['column_name'].str.contains('time',case=False)]
-    res[['old_value','new_value']] = res[['old_value','new_value']].replace({0: False, 1: True})
     # print(res)
     res = res.sort_values('timestamp')
     res.to_csv('final_cpe_audit.csv')
