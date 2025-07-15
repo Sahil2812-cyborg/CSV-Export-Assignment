@@ -13,16 +13,15 @@ def connect(id):
     cursor = db.cursor()
     print('Connection Successful')
 
-    # First query
-    query1 = """
-        SELECT cp.collection_protocol_id as cpid, cp.identifier as cpe_id,
-               aud.*, CONCAT(cu.first_name, ' ', cu.last_name) AS `User`, os.revtstmp as time
-        FROM catissue_coll_prot_event_aud aud
-        JOIN os_revisions os ON aud.rev = os.rev
-        JOIN catissue_user cu ON os.user_id = cu.identifier
-        JOIN catissue_coll_prot_event cp ON cp.identifier = aud.identifier
-        WHERE cp.collection_protocol_id = %s;
-    """
+    # First query for CPE
+    query1 = """SELECT cacp.short_title,cp.collection_protocol_id as cpid,cp.collection_point_label,cp.identifier as cpe_id,aud.*,
+        CONCAT(cu.first_name, \' \', cu.last_name) AS `User`, os.revtstmp as time FROM catissue_coll_prot_event_aud aud JOIN os_revisions os
+        ON aud.rev = os.rev JOIN catissue_user cu
+        ON os.user_id = cu.identifier join catissue_coll_prot_event cp 
+        ON cp.identifier = aud.identifier join catissue_collection_protocol cacp 
+        ON cp.collection_protocol_id = cacp.identifier 
+        WHERE cp.collection_protocol_id = %s
+        order by os.revtstmp;"""
 
     cursor.execute(query1, (id,))
     rows1 = cursor.fetchall()
@@ -31,9 +30,9 @@ def connect(id):
     df1 = pd.DataFrame(rows1, columns=cols1)
     df1.to_csv('cpe_audit.csv', index=False)
 
-    # Second query
+    # Second query for SR
     query2 = """
-        SELECT aud.*, os.user_id, os.revtstmp,
+        SELECT aud.*, os.user_id, os.revtstmp,req.spec_req_label as sr_name,
                event.identifier as cpeid, event.collection_protocol_id as cpid,
                CONCAT(usr.first_name, ' ', usr.last_name) AS `User`,
                cpv.value as value, pv.value as specimen_type
@@ -44,7 +43,8 @@ def connect(id):
         JOIN catissue_user usr ON usr.identifier = os.user_id
         JOIN catissue_permissible_value cpv ON cpv.identifier = aud.pathological_status_id
         JOIN catissue_permissible_value pv ON pv.identifier = aud.specimen_type_id
-        WHERE req.parent_specimen_id = %s;
+        WHERE event.collection_protocol_id = %s
+        order by os.revtstmp;
     """
 
     cursor.execute(query2, (id,))
@@ -58,7 +58,8 @@ def connect(id):
     query3 = """select aud.*, os.user_id, concat(mod_user.first_name,' ',mod_user.last_name) as 'User', 
     revtstmp as timestamp, concat(cu.first_name ,' ',cu.last_name) as 'Principal Investigator' from cat_collection_protocol_aud aud join os_revisions os on
     os.rev=aud.rev join catissue_user cu on aud.principal_investigator_id = cu.identifier join catissue_user mod_user on os.user_id = mod_user.identifier
-    WHERE aud.identifier = %s;
+    WHERE aud.identifier = %s
+    order by revtstmp;
     """
 
     cursor.execute(query3,(id,))
@@ -118,7 +119,6 @@ def create_detailed_changes_df(df, group_col='IDENTIFIER'):
                         'CP_ID': identifier,
                         'CPE_ID': None,
                         'SR_ID' : None,
-                        # 'sequence_in_group': idx + 1,  # 1-based sequence within group
                         'REV': group_df.iloc[idx]['REV'],  # Add REV for timestamp mapping
                         'column_name': col,
                         'old_value': old_val,
@@ -168,7 +168,6 @@ def create_new_cp_records(df, newcp_indx_list, group_col='IDENTIFIER'):
 def merge_newdf_with_old(df):
 
     detailed_changes_df = create_detailed_changes_df(df, 'IDENTIFIER')
-    print(detailed_changes_df)
 
     newcp_indx_list = []
 
@@ -192,7 +191,6 @@ def merge_newdf_with_old(df):
         # Filter out mod/rev columns
         df_filtered = detailed_changes_df[~detailed_changes_df['column_name'].str.contains('mod',case=False)]
         df_filtered = df_filtered[~df_filtered['column_name'].str.contains('rev',case=False)]
-        print(df_filtered)
 
 
         # Modified: Only drop 'sequence_in_group', keep 'REV' in the final output
@@ -211,8 +209,6 @@ def merge_newdf_with_old(df):
 
             combined_df[['old_value','new_value']] = combined_df[['old_value','new_value']].replace({0: False, 1: True})
 
-            print(f"\nCombined DataFrame with {len(df_filtered)} changes and {len(new_cp_df)} new CP records:")
-            print(combined_df)
 
             combined_df = combined_df.sort_values('revtstmp')
             
@@ -236,8 +232,7 @@ def create_sr_audit(df):
         print("No data found")
         return pd.DataFrame()  # Return empty DataFrame instead of string
     
-    print(f"DataFrame shape: {df.shape}")
-    print(f"DataFrame columns: {df.columns.tolist()}")
+    print(f"SR DataFrame shape: {df.shape}")
     
     detailed_changes = []
     new_df = df.copy()
@@ -246,11 +241,6 @@ def create_sr_audit(df):
         print("Only 1 record, no comparison possible")
         return pd.DataFrame()  # Return empty DataFrame
 
-    # # Sort by timestamp to ensure proper chronological order
-    # if 'time' in new_df.columns:
-    #     new_df = new_df.sort_values('time').reset_index(drop=True)
-    # elif 'revtstmp' in new_df.columns:
-    #     new_df = new_df.sort_values('revtstmp').reset_index(drop=True)
     
     shift_df = new_df.shift(1)
     change_mask = (new_df != shift_df) & (new_df.notna() | shift_df.notna())
@@ -268,6 +258,7 @@ def create_sr_audit(df):
                     'CP_ID': new_df.iloc[i]['cpid'],
                     'CPE_ID': new_df.iloc[i]['cpeid'],
                     'SR_ID': new_df.iloc[i]['IDENTIFIER'],
+                    'SR Name':new_df.iloc[i]['sr_name'],
                     'column_name': col,
                     'old_value': old_val,
                     'new_value': new_val,
@@ -307,9 +298,9 @@ def create_cpe_audit(df):
                 detailed_changes.append(
                     {
                         'CP_ID': new_df.iloc[i]['cpid'],
+                        'CP Short Title': new_df.iloc[i]['short_title'],
                         'CPE_ID': new_df.iloc[i]['cpe_id'],
-                        'SR_ID' : '',
-                        # 'sequence_in_group': i + 1,  # 1-based sequence within group
+                        'Collection Point Label': new_df.iloc[i]['collection_point_label'],
                         'column_name': col,
                         'old_value': old_val,
                         'new_value': new_val,
@@ -329,9 +320,6 @@ if __name__ == '__main__':
     cp_df = merge_newdf_with_old(df)
     df = pd.read_csv('cpe_audit.csv')
     cpe_res = create_cpe_audit(df)
-    cpe_res = cpe_res[~cpe_res['column_name'].str.contains('mod',case=False)]
-    cpe_res = cpe_res[~cpe_res['column_name'].str.contains('rev',case=False)]
-    cpe_res = cpe_res[~cpe_res['column_name'].str.contains('time',case=False)]
     # print(cpe_res)
     cpe_res = cpe_res.sort_values('timestamp')
     
@@ -345,24 +333,48 @@ if __name__ == '__main__':
     
     # Create audit comparison
     res = create_sr_audit(df)
-    
+    print(res)
     # Check if we have results before filtering
     if res.empty:
         print("No changes detected or insufficient data for comparison")
-    else:
-        print(f"Initial results shape: {res.shape}")
-        
-        # Filter out unwanted columns
-        res = res[~res['column_name'].str.contains('mod', case=False)]
-        res = res[~res['column_name'].str.contains('rev', case=False)]
-        res = res[~res['column_name'].str.contains('time', case=False)]
-        res = res[~res['column_name'].str.contains('user', case=False)]
-        res = res[~res['column_name'].str.contains('identifier', case=False)]
-    
-    # print(f'CPE audit \n{cpe_res.head(5)}')
-    # print(f'SR audit \n{res.head(5)}')
 
+    print(res)
     result = pd.concat([cpe_res,res], ignore_index=True)
     result = pd.concat([cp_df,result],ignore_index=True)
-    print(result)
+    print(result.columns.tolist())
+
+    # Adding short title using mode
+    most_common_title = result['CP Short Title'].mode().iloc[0]
+    result['CP Short Title'] = result['CP Short Title'].fillna(most_common_title)
+
+    # find the cell where cpe_id and sr_id is noy null and collection point lable is null
+    matching_indices = []
+    for index, row in result.iterrows():
+        if (pd.notna(row['CPE_ID']) and pd.notna(row['SR_ID']) and 
+            pd.isna(row['Collection Point Label'])):
+            matching_indices.append(index)
+
+    
+    #fill the collection point label column with appropriate values
+    for idx in matching_indices:
+        cpe_id = result.loc[idx, 'CPE_ID']
+    
+        # Find a row with the same CPE_ID that has a non-null Collection Point Label
+        for other_idx, other_row in result.iterrows():
+            if (other_row['CPE_ID'] == cpe_id and 
+                pd.notna(other_row['Collection Point Label'])):
+                result.loc[idx, 'Collection Point Label'] = other_row['Collection Point Label']
+                break
+
+
+    result = result[['CP_ID', 'CP Short Title', 'CPE_ID', 'Collection Point Label', 'SR_ID', 'SR Name', 'REV', 'column_name', 'old_value', 'new_value', 'user', 'timestamp']]
+    result = result[~result['column_name'].str.contains('mod', case=False)]
+    result = result[~result['column_name'].str.contains('rev', case=False)]
+    result = result[~result['column_name'].str.contains('revtstmp', case=False)]
+    result = result[~result['column_name'].str.contains('timestamp', case=False)]
+    result = result[~result['column_name'].str.contains('time', case=False)]
+    result = result[~result['column_name'].str.contains('identifier', case=False)]
+    result = result[~result['column_name'].str.contains('revtype', case=False)]
+    result = result[~result['column_name'].str.contains('cpe_id', case=False)]
+
     result.to_csv('final_audit.csv', index=False)

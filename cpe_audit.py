@@ -16,7 +16,10 @@ def connect(id):
 
     print('Connection Successfull')
 
-    query = 'SELECT cp.collection_protocol_id as cpid,cp.identifier as cpe_id,aud.*, CONCAT(cu.first_name, \' \', cu.last_name) AS `User`, os.revtstmp as time FROM catissue_coll_prot_event_aud aud JOIN os_revisions os ON aud.rev = os.rev JOIN catissue_user cu ON os.user_id = cu.identifier join catissue_coll_prot_event cp on cp.identifier = aud.identifier WHERE cp.collection_protocol_id = %s;'
+    query = """SELECT cacp.short_title,cp.collection_protocol_id as cpid,cp.collection_point_label,cp.identifier as cpe_id,aud.*,
+      CONCAT(cu.first_name, \' \', cu.last_name) AS `User`, os.revtstmp as time FROM catissue_coll_prot_event_aud aud JOIN os_revisions os ON aud.rev = os.rev JOIN catissue_user cu
+        ON os.user_id = cu.identifier join catissue_coll_prot_event cp on cp.identifier = aud.identifier join catissue_collection_protocol cacp on cp.collection_protocol_id = cacp.identifier 
+        WHERE cp.collection_protocol_id = %s;"""
     cursor.execute(query,(id,))
 
     rows = cursor.fetchall()
@@ -62,7 +65,9 @@ def create_audit(df):
                 detailed_changes.append(
                     {
                         'CP_ID': new_df.iloc[i]['cpid'],
+                        'CP Short TItle': new_df.iloc[i]['short_title'],
                         'CPE_ID': new_df.iloc[i]['cpe_id'],
+                        'Collection Point Label': new_df.iloc[i]['collection_point_label'],
                         'SR_ID' : '',
                         # 'sequence_in_group': i + 1,  # 1-based sequence within group
                         'column_name': col,

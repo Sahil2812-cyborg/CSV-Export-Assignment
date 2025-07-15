@@ -132,62 +132,70 @@ def create_new_cp_records(df, newcp_indx_list, group_col='IDENTIFIER'):
     return pd.DataFrame(new_cp_records)
 
 
-detailed_changes_df = create_detailed_changes_df(df, 'IDENTIFIER')
-print(detailed_changes_df)
 
-newcp_indx_list = []
+def merge_newdf_with_old():
 
-identifier_count = df['IDENTIFIER'].value_counts()
-new_count = [identifier_count[identifier_count == 1].index]
-for i in new_count:
-    for j in i:
-        newcp_indx_list.append(j)
+    detailed_changes_df = create_detailed_changes_df(df, 'IDENTIFIER')
+    print(detailed_changes_df)
 
-if detailed_changes_df is not None and not detailed_changes_df.empty:
-    # Create mapping for timestamp using REV (now available in latest_changes_df)
-    timestamp_mapping = df[['REV','revtstmp']].drop_duplicates()
+    newcp_indx_list = []
 
-    detailed_changes_df = detailed_changes_df.merge(
-        timestamp_mapping,
-        left_on='REV',
-        right_on='REV',
-        how='left'  # Changed to left join to preserve all records
-    )
+    identifier_count = df['IDENTIFIER'].value_counts()
+    new_count = [identifier_count[identifier_count == 1].index]
+    for i in new_count:
+        for j in i:
+            newcp_indx_list.append(j)
 
-    # Filter out mod/rev columns
-    df_filtered = detailed_changes_df[~detailed_changes_df['column_name'].str.contains('mod',case=False)]
-    df_filtered = df_filtered[~df_filtered['column_name'].str.contains('rev',case=False)]
-    print(df_filtered)
+    if detailed_changes_df is not None and not detailed_changes_df.empty:
+        # Create mapping for timestamp using REV (now available in latest_changes_df)
+        timestamp_mapping = df[['REV','revtstmp']].drop_duplicates()
+
+        detailed_changes_df = detailed_changes_df.merge(
+            timestamp_mapping,
+            left_on='REV',
+            right_on='REV',
+            how='left'  # Changed to left join to preserve all records
+        )
+
+        # Filter out mod/rev columns
+        df_filtered = detailed_changes_df[~detailed_changes_df['column_name'].str.contains('mod',case=False)]
+        df_filtered = df_filtered[~df_filtered['column_name'].str.contains('rev',case=False)]
+        print(df_filtered)
 
 
-    # Modified: Only drop 'sequence_in_group', keep 'REV' in the final output
-    columns_to_drop = ['sequence_in_group']
-    df_filtered = df_filtered.drop(columns=columns_to_drop, errors='ignore')
-    
-    # Create new CP records with the same structure
-    new_cp_df = create_new_cp_records(df, newcp_indx_list, 'IDENTIFIER')
-    
-    # Combine the filtered changes with new CP records
-    if not new_cp_df.empty:
-        # Ensure both DataFrames have the same columns
-        combined_df = pd.concat([df_filtered, new_cp_df], ignore_index=True)
-        combined_df = combined_df[~combined_df['column_name'].str.contains('mod',case=False)]
-        combined_df = combined_df[~combined_df['column_name'].str.contains('rev',case=False)]
-
-        combined_df[['old_value','new_value']] = combined_df[['old_value','new_value']].replace({0: False, 1: True})
-
-        print(f"\nCombined DataFrame with {len(df_filtered)} changes and {len(new_cp_df)} new CP records:")
-        print(combined_df)
-
-        combined_df = combined_df.sort_values('revtstmp')
+        # Modified: Only drop 'sequence_in_group', keep 'REV' in the final output
+        columns_to_drop = ['sequence_in_group']
+        df_filtered = df_filtered.drop(columns=columns_to_drop, errors='ignore')
         
-        # Save combined results to CSV
-        combined_df.to_csv('latest_changes_user_time.csv', index=False)
-        print(f"\nCombined changes and new CP records saved to 'latest_changes_user_time.csv'")
+        # Create new CP records with the same structure
+        new_cp_df = create_new_cp_records(df, newcp_indx_list, 'IDENTIFIER')
+        
+        # Combine the filtered changes with new CP records
+        if not new_cp_df.empty:
+            # Ensure both DataFrames have the same columns
+            combined_df = pd.concat([df_filtered, new_cp_df], ignore_index=True)
+            combined_df = combined_df[~combined_df['column_name'].str.contains('mod',case=False)]
+            combined_df = combined_df[~combined_df['column_name'].str.contains('rev',case=False)]
+
+            combined_df[['old_value','new_value']] = combined_df[['old_value','new_value']].replace({0: False, 1: True})
+
+            print(f"\nCombined DataFrame with {len(df_filtered)} changes and {len(new_cp_df)} new CP records:")
+            print(combined_df)
+
+            combined_df = combined_df.sort_values('revtstmp')
+            
+            # Save combined results to CSV
+            combined_df.to_csv('latest_changes_user_time.csv', index=False)
+            print(f"\nCombined changes and new CP records saved to 'latest_changes_user_time.csv'")
+        else:
+            # Save only the filtered changes if no new CP records
+            df_filtered.to_csv('latest_changes_user_time.csv', index=False)
+            print(f"\nLatest changes saved to 'latest_changes_user_time.csv'")
+            
     else:
-        # Save only the filtered changes if no new CP records
-        df_filtered.to_csv('latest_changes_user_time.csv', index=False)
-        print(f"\nLatest changes saved to 'latest_changes_user_time.csv'")
-        
-else:
-    print("No changes detected or no data to analyze.")
+        print("No changes detected or no data to analyze.")
+
+
+if __name__  == '__main__':
+
+    merge_newdf_with_old()
